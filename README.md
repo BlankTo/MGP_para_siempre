@@ -1,6 +1,8 @@
 
 # DISCLAIMER: I generated this README with AI, so check it well...
 
+# Overleaf MGP info: https://www.overleaf.com/2958542536dptjtsmkzfms#dd408b
+
 # MGP: single derivation
 
 Python implementation of the derivation rules from *Minimalist Genetic Programming*
