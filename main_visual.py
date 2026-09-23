@@ -17,6 +17,8 @@ VISUAL_CONFIG = {
     #"target": "nguyen_1", "unary_operators_on": False,
     #"target": "nguyen_8", "unary_operators_on": True,
 
+    "internal_merge_probability": 0.0,
+
     "esel": 0.0, #0.5,
     "esur": 0.0, # best left at 0.0 in this script to avoid visual explosion
 
@@ -163,9 +165,14 @@ class WorkspaceViewer:
             message = "Stopped at the MERGE attempt limit."
         elif self.derivation.termination_reason == "empty_workspace":
             message = "Finished: the workspace is empty."
+        elif self.derivation.termination_reason == "no_valid_merge":
+            message = "Finished: no valid MERGE remains."
 
         if self.derivation.best is not None:
             message += f"  Best RMSE: {self.derivation.best_fitness:.8g}"
+
+        if self.derivation.last_merge_kind is not None:
+            message += "  Last MERGE: " + self.derivation.last_merge_kind
 
         self.status.set_text(message)
         self.figure.canvas.draw_idle()

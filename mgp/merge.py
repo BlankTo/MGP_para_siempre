@@ -1,15 +1,101 @@
 from copy import copy
 import random
 
-import numpy as np
-
 from .fitness import object_fitness, readonly_target
-from .objects import IncompleteObject, MergeTree, OperatorObject, SemanticObject
+from .objects import IncompleteObject, MergeTree, OperatorObject, SemanticObject, apply_operator
 
 
 class InternalMerge:
-    def merge(self, current):
-        raise NotImplementedError("Internal MERGE is not implemented.")
+    def __init__(self, external_merge):
+        self.external_merge = external_merge
+
+    def candidate_count(self, current):
+        return current.accessible_count - int(current.internal_accessible)
+
+    def select(self, current, generator):
+        count = self.candidate_count(current)
+
+        if count == 0:
+            raise ValueError("This object has no accessible internal occurrence.")
+
+        rank = generator.randrange(count)
+        path = ()
+
+        while current.children:
+            for index in (1, 0):
+                child = current.children[index]
+
+                if rank >= child.accessible_count:
+                    rank -= child.accessible_count
+                    continue
+
+                path += (index,)
+
+                if child.internal_accessible:
+                    if rank == 0:
+                        return path, child
+
+                    rank -= 1
+
+                current = child
+                break
+
+        raise ValueError("Inconsistent internal accessibility count.")
+
+    def candidates(self, current):
+        candidates = []
+        pending = []
+
+        for index, child in enumerate(current.children):
+            pending.append(((index,), child))
+
+        while pending:
+            path, child = pending.pop()
+
+            if child.internal_accessible:
+                candidates.append((path, child))
+
+            for index, descendant in enumerate(child.children):
+                pending.append((path + (index,), descendant))
+
+        return candidates
+
+    def merge(self, current, path=None):
+        if path is None:
+            path, selected = self.select(current, self.external_merge.random)
+        else:
+            selected = current
+
+            if not path:
+                raise ValueError("Select an internal occurrence, not the root.")
+
+            for index in path:
+                if index not in (0, 1) or index >= len(selected.children):
+                    raise ValueError("The internal occurrence does not exist.")
+
+                selected = selected.children[index]
+
+            if not selected.internal_accessible:
+                raise ValueError("The internal occurrence is not accessible.")
+
+        parent = copy(current)
+        parent.accessible_count -= 1
+        original = current
+        branch = parent
+
+        for index in path:
+            children = list(original.children)
+            child = copy(children[index])
+            child.accessible_count -= 1
+            children[index] = child
+            branch.children = tuple(children)
+            original = original.children[index]
+            branch = child
+
+        branch.internal_accessible = False
+        result = self.external_merge.merge(selected, parent)
+
+        return result
 
 
 class ExternalMerge:
@@ -43,6 +129,9 @@ class ExternalMerge:
     def merge(self, left, right):
         result = self.evaluate_merge(left, right)
         result.structure = MergeTree(result.expression, (left.structure, right.structure))
+        result.children = (left, right)
+        result.internal_accessible = True
+        result.accessible_count = 1 + left.accessible_count + right.accessible_count
 
         return result
 
@@ -139,36 +228,17 @@ class ExternalMerge:
         if semantic.unary_argument is not None:
             argument = semantic.unary_argument
 
-        with np.errstate(divide="ignore", invalid="ignore"):
-            if symbol == "sin":
-                values = np.sin(argument.values)
-            elif symbol == "cos":
-                values = np.cos(argument.values)
-            elif symbol == "log":
-                values = np.log(argument.values)
-            elif symbol == "sqrt":
-                values = np.sqrt(argument.values)
-            else:
-                raise ValueError("Unknown unary operator: " + symbol)
-
+        values = apply_operator(symbol, argument.values)
         result = SemanticObject(f"{symbol}({argument.expression})", values, is_atomic=False)
+        result.evaluation = (symbol, argument.evaluation)
         result.unary_argument = argument
 
         return result
 
     def evaluate_operator(self, symbol, left, right):
-        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-            if symbol == "+":
-                values = left.values + right.values
-            elif symbol == "-":
-                values = left.values - right.values
-            elif symbol == "*":
-                values = left.values * right.values
-            elif symbol == "/":
-                values = left.values / right.values
-            else:
-                raise ValueError("Unknown operator: " + symbol)
-
+        values = apply_operator(symbol, left.values, right.values)
         expression = f"({left.expression} {symbol} {right.expression})"
+        result = SemanticObject(expression, values, is_atomic=False)
+        result.evaluation = (symbol, left.evaluation, right.evaluation)
 
-        return SemanticObject(expression, values, is_atomic=False)
+        return result

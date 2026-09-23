@@ -23,6 +23,28 @@ def operator_arity(symbol):
     raise ValueError("Unknown operator: " + symbol)
 
 
+def apply_operator(symbol, left, right=None):
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        if symbol == "+":
+            return left + right
+        if symbol == "-":
+            return left - right
+        if symbol == "*":
+            return left * right
+        if symbol == "/":
+            return left / right
+        if symbol == "sin":
+            return np.sin(left)
+        if symbol == "cos":
+            return np.cos(left)
+        if symbol == "log":
+            return np.log(left)
+        if symbol == "sqrt":
+            return np.sqrt(left)
+
+    raise ValueError("Unknown operator: " + symbol)
+
+
 class MergeTree:
     def __init__(self, label, children=()):
         self.label = label
@@ -56,10 +78,14 @@ class SemanticObject:
             raise ValueError("A semantic object needs a nonempty one-dimensional vector.")
 
         self.expression = expression
+        self.evaluation = expression
         self.values = values.copy()
         self.values.setflags(write=False)
         self.is_atomic = is_atomic
         self.structure = MergeTree(expression)
+        self.children = ()
+        self.internal_accessible = True
+        self.accessible_count = 1
         self.unary_argument = None
 
         self._fitness_target = None
@@ -100,6 +126,9 @@ class OperatorObject:
 
         self.is_atomic = is_atomic
         self.structure = MergeTree(self.expression)
+        self.children = ()
+        self.internal_accessible = True
+        self.accessible_count = 1
 
     @property
     def category(self):
@@ -131,6 +160,9 @@ class IncompleteObject:
         self.semantic = semantic
         self.head = head
         self.structure = MergeTree(self.expression, (semantic.structure, head.structure))
+        self.children = (semantic, head)
+        self.internal_accessible = True
+        self.accessible_count = 1 + semantic.accessible_count + head.accessible_count
 
     @property
     def expression(self):

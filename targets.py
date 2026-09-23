@@ -29,6 +29,14 @@ def polynomial_sine(x1):
     return x1 * x1 + x1 + np.sin(x1)
 
 
+def g1(x1):
+    return x1 + x1**2
+
+
+def g2(x1, x2):
+    return x1**2 + x2**2
+
+
 def nguyen_1(x1):
     return x1 + x1**2 + x1**3
 
@@ -74,6 +82,8 @@ def nguyen_12(x1, x2):
 
 
 TARGETS = {
+    "g1": (g1, "x1 + x1**2"),
+    "g2": (g2, "x1**2 + x2**2"),
     "addition": (addition, "x1 + x2"),
     "square_plus": (square_plus, "x1 * x1 + x2"),
     "product_sum": (product_sum, "x1 * (x1 + x2)"),
@@ -96,6 +106,8 @@ TARGETS = {
 
 
 TARGET_DOMAINS = {
+    g1: (-5.0, 5.0),
+    g2: (-5.0, 5.0),
     nguyen_1: (-5.0, 5.0),
     nguyen_2: (-5.0, 5.0),
     nguyen_3: (-5.0, 5.0),

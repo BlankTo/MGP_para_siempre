@@ -25,6 +25,10 @@ class Derivation:
         self.config = config.copy()
         self.seed = seed
 
+        for name in ("esur_in_IM", "IM_terminate_on_one"):
+            if not isinstance(config.get(name, name == "IM_terminate_on_one"), bool):
+                raise ValueError(name + " must be a boolean.")
+
     def consider(self, current, source):
         if not isinstance(current, SemanticObject):
             return
@@ -54,6 +58,10 @@ class Derivation:
         self.initial_counts = object_counts(self.workspace)
         self.current_counts = {}
         self.last_merge = None
+        self.last_merge_kind = None
+        self.internal_merge_count = 0
+        self.external_merge_count = 0
+        self.internal_fallback_count = 0
 
         for index, column in enumerate(MATRIX_COLUMNS):
             self.current_counts[column] = self.initial_counts[index]
@@ -69,7 +77,8 @@ class Derivation:
         generator = random.Random(self.seed)
         merge_seed = generator.getrandbits(63)
         external_merge = ExternalMerge(self.target, self.config["fitness_probability"], merge_seed)
-        internal_merge = InternalMerge()
+        internal_merge = InternalMerge(external_merge)
+        self.internal_merge = internal_merge
         internal_probability = self.config["internal_merge_probability"]
 
         if verbose:
@@ -110,40 +119,66 @@ class Derivation:
             if verbose:
                 print("\n" + "=" * 80)
 
-            if internal_probability > 0 and generator.random() < internal_probability:
-                current = generator.choice(self.workspace)
-                internal_merge.merge(current)
-                continue
-
             elite_index = None
 
             if self.config["esel"] > 0 or self.config["esur"] > 0:
                 elite_index = best_index(self.workspace, self.target)
+
+            attempt_internal = False
+
+            if internal_probability > 0:
+                attempt_internal = len(self.workspace) == 1 or generator.random() < internal_probability
 
             if elite_index is not None and generator.random() < self.config["esel"]:
                 left_index = elite_index
             else:
                 left_index = generator.randrange(len(self.workspace))
 
-            right_index = generator.randrange(len(self.workspace) - 1)
+            internal_pair = None
 
-            if right_index >= left_index:
-                right_index += 1
+            if attempt_internal:
+                parent = self.workspace[left_index]
 
-            left = self.workspace[left_index]
-            right = self.workspace[right_index]
-            result = external_merge.merge(left, right)
+                if internal_merge.candidate_count(parent):
+                    internal_pair = internal_merge.select(parent, generator)
+                else:
+                    self.internal_fallback_count += 1
+
+            if internal_pair is not None:
+                parent_index = left_index
+                path, left = internal_pair
+                right = self.workspace[parent_index]
+                result = internal_merge.merge(right, path)
+                removed_indices = [parent_index]
+
+                if self.config.get("esur_in_IM", False) and elite_index == parent_index:
+                    if generator.random() < self.config["esur"]:
+                        removed_indices = []
+
+                self.last_merge_kind = "internal"
+                self.internal_merge_count += 1
+            else:
+                right_index = generator.randrange(len(self.workspace) - 1)
+
+                if right_index >= left_index:
+                    right_index += 1
+
+                left = self.workspace[left_index]
+                right = self.workspace[right_index]
+                result = external_merge.merge(left, right)
+                removed_indices = [left_index, right_index]
+
+                if elite_index in removed_indices and generator.random() < self.config["esur"]:
+                    removed_indices.remove(elite_index)
+
+                self.last_merge_kind = "external"
+                self.external_merge_count += 1
+
             self.last_merge = (left, right, result)
 
-            preserve_index = None
-
-            if elite_index in (left_index, right_index) and generator.random() < self.config["esur"]:
-                preserve_index = elite_index
-
-            for index in sorted((left_index, right_index), reverse=True):
-                if index != preserve_index:
-                    self.current_counts[self.workspace[index].category] -= 1
-                    self.workspace.pop(index)
+            for index in sorted(removed_indices, reverse=True):
+                self.current_counts[self.workspace[index].category] -= 1
+                self.workspace.pop(index)
 
             self.workspace.append(result)
             self.current_counts[result.category] += 1
@@ -156,7 +191,7 @@ class Derivation:
 
             if verbose:
                 print(
-                    f"MERGE {self.merge_count}:"
+                    f"MERGE {self.merge_count} ({self.last_merge_kind}):"
                     f" left={left.structure.text()} right={right.structure.text()}"
                     f" -> {result.structure.text()}"
                 )
@@ -186,11 +221,19 @@ class Derivation:
 
         if not self.workspace:
             self.termination_reason = "empty_workspace"
-        elif len(self.workspace) == 1:
+        elif len(self.workspace) == 1 and (
+            self.config.get("IM_terminate_on_one", True)
+            or self.config["internal_merge_probability"] == 0
+        ):
             self.termination_reason = "single_object"
             self.final_object = self.workspace[0]
-        elif self.attempt_count >= self.config["max_merge"]:
+        elif self.merge_count >= self.config["max_merge"]:
             self.termination_reason = "max_merge"
+        elif len(self.workspace) == 1 and not self.internal_merge.candidate_count(self.workspace[0]):
+            self.termination_reason = "no_valid_merge"
+
+        if self.termination_reason and len(self.workspace) == 1:
+            self.final_object = self.workspace[0]
 
     def best_location(self):
         if self.best is None:

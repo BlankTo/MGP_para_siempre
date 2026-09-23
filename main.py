@@ -6,17 +6,17 @@ from mgp.fitness import object_fitness
 from targets import TARGETS
 
 
-def main():
-    seed = resolve_seed(CONFIG["seed"])
-    dataset_seed = resolve_seed(CONFIG["dataset_seed"])
+def main(settings=CONFIG):
+    seed = resolve_seed(settings["seed"])
+    dataset_seed = resolve_seed(settings["dataset_seed"])
     generator = random.Random(seed)
-    function, target_expression = TARGETS[CONFIG["target"]]
-    variables, target = make_dataset(function, CONFIG, dataset_seed)
+    function, target_expression = TARGETS[settings["target"]]
+    variables, target = make_dataset(function, settings, dataset_seed)
 
     workspace_seed = generator.getrandbits(63)
     derivation_seed = generator.getrandbits(63)
-    workspace = make_workspace(variables, CONFIG, workspace_seed)
-    derivation = Derivation(target, CONFIG, derivation_seed)
+    workspace = make_workspace(variables, settings, workspace_seed)
+    derivation = Derivation(target, settings, derivation_seed)
     best = derivation.run(workspace, verbose=True)
 
     print("\n" + "=" * 80)

@@ -5,8 +5,8 @@ from mgp.repetition import print_results, repeat_derivations
 REPEAT_STATS_CONFIG = {
     **CONFIG,
 
-    "derivations": 10000,
-    "progress_every": 100,
+    "derivations": 100,
+    "progress_every": 10,
 }
 
 
