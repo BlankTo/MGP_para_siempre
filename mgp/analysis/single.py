@@ -5,7 +5,6 @@ from mgp.analysis.data import FACTORS, levels
 from mgp.analysis.stats import ARCH, GOALS, ORDER, SN, TN, V2_ORDER, bold, holm, mcnemar, mean_or_nan, measures, num, pct, present, row_label, signed_rank
 
 KEYS = list(FACTORS)
-COV = ('component', 'cooccurrence', 'composite')
 
 
 def lab(s, im):
@@ -128,36 +127,6 @@ def group_lists(S1, rows, ref):
             m &= (S1[k] == val).to_numpy()
         g = S1[m].groupby('target').agg(built=('evaluated_target_ever', 'max'), num=('test_success', 'max'), sym=('sym', 'max'))
         out.append({c: [n for n in V2_ORDER if any(TN[t] == n and g.loc[t, c] == 1 for t in g.index)] for c in ('built', 'num', 'sym')})
-    return out
-
-
-def standard_targets(S1, ref):
-    std = S1[S1.strategy == ref['strategy']]
-    base = std.copy()
-    for k, v in ref.items():
-        base = base[base[k] == v]
-    out = {}
-    for t in targets(S1):
-        r, a = base[base.target == t], std[std.target == t]
-        out[TN[t]] = {**{f'ref_{k}': 100 * float(r[c].mean()) for k, c in (('built', 'evaluated_target_ever'), ('num', 'test_success'), ('sym', 'sym'))},
-                      **{f'all_{k}': 100 * float(a[c].mean()) for k, c in (('built', 'evaluated_target_ever'), ('num', 'test_success'), ('sym', 'sym'))}}
-    return out
-
-
-def describe(c):
-    return f"({SN[c['strategy']]}, {c['im']:g}, {int(c['size'])}, {c['ratio']}, {c['esel']:g}, {c['esur']:g})"
-
-
-def best_configurations(S1):
-    x = S1.copy()
-    x['num'] = 100 * x.test_success
-    x['sym_pct'] = 100 * (x.symbolic_recovery == 1)
-    cols = ['num', 'sym_pct'] + [f'{a}_{g}' for a in ARCH for g in COV]
-    conf = x.groupby(KEYS + ['target'])[cols].mean().reset_index().groupby(KEYS)[cols].mean().reset_index()
-    out = {}
-    for c in cols:
-        best = conf.sort_values(c, ascending=False).iloc[0]
-        out[c] = {'value': float(best[c]), 'configuration': describe(best)}
     return out
 
 

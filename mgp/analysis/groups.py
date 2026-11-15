@@ -188,7 +188,7 @@ def recovery7(X):
     return out
 
 
-def coverage_growth7(X, target='nguyen_12', permutations=50, seed=20261105, final=None, path7=None):
+def coverage_growth7(X, target='nguyen_12', permutations=50, seed=20261105, final=None, path7=None, diversity=False):
     from mgp.analysis import capacity
     X = X[X.target == target].sort_values(['strategy', 'pool', 'rep'])
 
@@ -197,19 +197,22 @@ def coverage_growth7(X, target='nguyen_12', permutations=50, seed=20261105, fina
         return {g: m[g] for g in ('component', 'cooccurrence', 'composite')}
 
     rng = np.random.default_rng(seed)
+    archs = ARCHS + ([DIVERSITY] if diversity else [])
     res = {}
     size = None
-    for s in present(STRATS, X.strategy):
+    strategies = present(STRATS, X.strategy)
+    for s in strategies:
         y = X[X.strategy == s]
         size = int(y.groupby('pool').size().iloc[0])
         P = y.pool.nunique()
         perms = [rng.permutation(size) for _ in range(permutations)]
         ns = [n for n in NS if n <= size]
-        if final is not None:
+        if final is not None or diversity:
             orders = tuple(tuple(int(i) for i in p) for p in perms)
-            pm = capacity.prefix_masks(path7, target, final, ns, [a for a, _, _ in ARCHS], keep=sorted(set(y.case_id)), orders=orders)
-        for key, col, an in ARCHS:
-            if final is None:
+            names = [a for a, _, _ in archs] if final is not None else ['div']
+            pm = capacity.prefix_masks(path7, target, final, ns, names, keep=sorted(set(y.case_id)), orders=orders)
+        for key, col, an in archs:
+            if final is None and col is not None:
                 m = y[col].to_numpy(dtype=np.int64).reshape(P, size)
                 seqs = np.concatenate([m[:, p] for p in perms], axis=0)
                 curve = growth(seqs, ns, meas)
@@ -218,4 +221,4 @@ def coverage_growth7(X, target='nguyen_12', permutations=50, seed=20261105, fina
             for g, v in curve.items():
                 res[f'{s}|{an}|{g}'] = v
             res[f'{s}|{an}|groups'] = P
-    return {'n': [n for n in NS if size and n <= size], 'values': res}
+    return {'n': [n for n in NS if size and n <= size], 'values': res, 'strategies': strategies, 'group_size': size}

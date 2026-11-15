@@ -1,6 +1,6 @@
 # MGP_para_siempre
 
-Experiments (Studies 1–8 and the workspace grid) and the analyses that produce the paper's tables, figures and numbers.
+Experiments (Studies 1–8 and the workspace grid) and the analyses that produce the paper's tables and figures.
 
 ## Install
 

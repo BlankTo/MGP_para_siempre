@@ -3,6 +3,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+from mgp.analysis.stats import SN
 from mgp.progress import log
 
 INK, INK2, GRIDC = '#1f1f1e', '#52514e', '#e4e3df'
@@ -40,3 +41,38 @@ def save(fig, base):
 def goal_legend(fig, y):
     h = [Line2D([], [], color=c, ls=ls, marker=mk, ms=LEG_MS, lw=LW) for _, _, c, ls, mk in GOALS]
     fig.legend(h, [lab for _, lab, _, _, _ in GOALS], loc='lower center', bbox_to_anchor=(0.5, y), ncol=3, handlelength=3.0, columnspacing=1.6)
+
+
+ROWS = (('BBA', 'BA and BBA'), ('FBBA', 'FBBA'))
+BOUNDED_ROWS = (('BA', 'BA'), ('BBA', 'BBA'), ('FBBA', 'FBBA'))
+DIVERSITY_ROW = ('BAdiv', 'BA diversity')
+
+
+def ticks(size):
+    return [10 ** k for k in range(len(str(size))) if 10 ** k <= size]
+
+
+def growth_figure(growth, base, diversity=False, bounded=False):
+    rows = (BOUNDED_ROWS if bounded else ROWS) + ((DIVERSITY_ROW,) if diversity else ())
+    use('grid')
+    res, n_grid, strategies = growth['values'], growth['n'], growth['strategies']
+    xticks = ticks(growth['group_size'])
+    fig, axes = plt.subplots(len(rows), len(strategies), figsize=(W, round(1.1 * len(rows), 2)), sharex=True, sharey=True, squeeze=False)
+    for i, (an, _) in enumerate(rows):
+        for j, s in enumerate(strategies):
+            ax = axes[i, j]
+            for g, _, c, ls, mk in GOALS:
+                ax.plot(n_grid, res[f'{s}|{an}|{g}'], color=c, ls=ls, marker=mk, ms=MS, lw=LW)
+            ax.set_xscale('log')
+            ax.set_xticks(xticks, [f'{t:,}' for t in xticks])
+            ax.minorticks_off()
+            ax.set_ylim(-3, 103)
+            ax.set_yticks([0, 50, 100])
+    for j, s in enumerate(strategies):
+        axes[0, j].set_title(SN[s], fontsize=8.5, fontweight='bold')
+    axes[-1, len(strategies) // 2].set_xlabel('derivations in the group')
+    for i, (_, t) in enumerate(rows):
+        axes[i, 0].set_ylabel(f'{t}\ncoverage (%)')
+    fig.tight_layout(h_pad=0.5, w_pad=0.6)
+    goal_legend(fig, 0.995)
+    save(fig, base)
