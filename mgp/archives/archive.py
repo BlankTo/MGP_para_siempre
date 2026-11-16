@@ -8,7 +8,8 @@ from mgp.engine.symbolic import symbolic_data, symbolic_has_variables
 
 class Archive:
 
-    def __init__(self, max_size=None, similarity=0.99, atomic_objects=False, comparison=None, comparison_is_distance=False, symbolic=False, target=None):
+    def __init__(self, max_size=None, similarity=0.99, atomic_objects=False, comparison=None, comparison_is_distance=False, symbolic=False, target=None,
+                 constants=False):
         if max_size is not None and (not isinstance(max_size, int) or max_size < 1):
             raise ValueError('single_archive_max_size must be a positive integer or None')
         if not 0 <= similarity <= 1:
@@ -16,6 +17,7 @@ class Archive:
         self.max_size = max_size
         self.similarity = similarity
         self.atomic_objects = atomic_objects
+        self.constants = constants
         self.objects = []
         self.directions = []
         self.default_comparison = comparison is None
@@ -64,12 +66,12 @@ class Archive:
             raise ValueError('archive objects must use the same dataset')
         finite = np.isfinite(current.values)
         values = current.values[finite]
-        if (len(values) > 1 or np.all(finite)) and np.all(values == values[0]):
+        if not self.constants and (len(values) > 1 or np.all(finite)) and np.all(values == values[0]):
+            return False
+        if not self.constants and (self.symbolic or self.target is not None) and not symbolic_has_variables(current):
             return False
         if self.symbolic:
             data = symbolic_data(current)
-            if not symbolic_has_variables(current):
-                return False
             key = data[0]
             if key in self.symbolic_keys:
                 index = self._symbolic_positions[key]

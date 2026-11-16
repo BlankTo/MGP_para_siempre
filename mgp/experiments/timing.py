@@ -17,6 +17,14 @@ def setup(options):
 
 
 def measure(task, archives_on, diversity):
+    row = measure_once(task, archives_on, diversity)
+    if row[2] == 'error' and row[-1].startswith('HeuristicGCDFailed:'):
+        with C.exact_gcd():
+            row = measure_once(task, archives_on, diversity)
+    return row
+
+
+def measure_once(task, archives_on, diversity):
     from mgp.experiments.jobs import job_settings, make_job_dataset
     from mgp.experiments.plan import paired_seed
     from mgp.engine.derivation import Derivation

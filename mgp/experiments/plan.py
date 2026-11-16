@@ -39,8 +39,6 @@ RUN_FACTORS = (*FACTORS, 'max_merge', 'esur_in_IM', 'IM_terminate_on_one')
 def compatible(config):
     if config['merge_strategy'] == 'revisit_ic' and config['semantic_list_enabled']:
         return 'revisit_ic_does_not_support_semantic_lists'
-    if config['merge_strategy'] == 'constructive' and config['semantic_list_enabled']:
-        return 'constructive_does_not_create_semantic_lists'
     return None
 
 

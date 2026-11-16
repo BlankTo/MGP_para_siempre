@@ -26,9 +26,12 @@ NOISES = (0.0,)
 REVISIT_IC_VARIANTS = 4
 REVISIT_IC_PAIRS = 16
 REVISIT_IC_BUDGET = None
+CONSTRUCTIVE_MERGES = ('incomplete+semantic', 'operator+semantic', 'operator+operator')
+COMPLETE_INTO_HOLE = False
 
 SINGLE_ARCHIVE_MAX_SIZE = None
 FINAL_ARCHIVE_MAX_SIZE = None
+ARCHIVE_CONSTANTS = False
 
 SETTINGS = {}
 

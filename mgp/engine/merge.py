@@ -4,9 +4,9 @@ from copy import copy
 from weakref import WeakKeyDictionary
 
 from mgp.engine.fitness import object_fitness, readonly_target
-from mgp.engine.merge_strategies import AlternativeLimit, AlternativeReplay, constructive_class, constructive_pair
+from mgp.engine.merge_strategies import AlternativeLimit, AlternativeReplay, constructive_pair, merge_kind, merge_pair
 from mgp.engine.objects import IncompleteObject, MergeTree, OperatorObject, SemanticList, SemanticObject, apply_operator, semantic_choices
-from mgp.engine.operator_sequence import operator_concat, operator_count
+from mgp.engine.operator_sequence import operator_concat
 
 
 def _copy_mgp_node(node):
@@ -18,40 +18,16 @@ def _copy_mgp_node(node):
     return copy(node)
 
 
-def _constructive_child_predicate(parent):
-    if isinstance(parent, OperatorObject):
-        atomic, arity = parent.is_atomic, parent.arity
-        may_bind_semantic = arity == 2
-        unary_single = arity != 2 and operator_count(parent.operators) == 1
+def _constructive_child_predicate(kind, allowed):
+    operator, incomplete, semantic = (merge_pair(kind, other) in allowed for other in ('operator', 'incomplete', 'semantic'))
 
-        def allowed(child):
-            if isinstance(child, OperatorObject):
-                return child.is_atomic == atomic and child.arity == arity
-            return isinstance(child, SemanticObject) and (may_bind_semantic or (unary_single and not isinstance(child, SemanticList)))
-        return allowed
-
-    if isinstance(parent, IncompleteObject):
-        may_bind_semantic = len(parent.head.operators) == 1 and not isinstance(parent.semantic, SemanticList)
-
-        def allowed(child):
-            if isinstance(child, OperatorObject) or isinstance(child, IncompleteObject):
-                return False
-            return may_bind_semantic and isinstance(child, SemanticObject) and not isinstance(child, SemanticList)
-        return allowed
-
-    if isinstance(parent, SemanticObject):
-        list_parent = isinstance(parent, SemanticList)
-
-        def allowed(child):
-            if isinstance(child, OperatorObject):
-                return child.arity == 2 or (operator_count(child.operators) == 1 and not list_parent)
-            if isinstance(child, IncompleteObject):
-                return (not list_parent and len(child.head.operators) == 1
-                        and not isinstance(child.semantic, SemanticList))
-            return False
-        return allowed
-
-    return lambda child: constructive_pair(child, parent)
+    def legal(child):
+        if isinstance(child, OperatorObject):
+            return operator
+        if isinstance(child, IncompleteObject):
+            return incomplete
+        return semantic
+    return legal
 
 
 class InternalMerge:
@@ -67,8 +43,11 @@ class InternalMerge:
         return current.accessible_count - int(current.internal_accessible)
 
     def constructive_counts(self, current):
-        counts = self.constructive_cache.setdefault(constructive_class(current), WeakKeyDictionary())
-        allowed = _constructive_child_predicate(current)
+        kind = merge_kind(current)
+        entry = self.constructive_cache.get(kind)
+        if entry is None:
+            entry = self.constructive_cache[kind] = (WeakKeyDictionary(), _constructive_child_predicate(kind, self.external_merge.constructive_merges))
+        counts, allowed = entry
         pending = [(current, False)]
         while pending:
             node, ready = pending.pop()
@@ -96,7 +75,7 @@ class InternalMerge:
                         rank -= counts[child]
                         continue
                     path.append(index)
-                    if child.internal_accessible and constructive_pair(child, parent):
+                    if child.internal_accessible and constructive_pair(child, parent, self.external_merge.constructive_merges):
                         if rank == 0:
                             return (tuple(path), child)
                         rank -= 1
@@ -123,19 +102,6 @@ class InternalMerge:
                 break
         raise ValueError('inconsistent internal accessibility count')
 
-    def candidates(self, current):
-        candidates = []
-        pending = []
-        for index, child in enumerate(current.children):
-            pending.append(((index,), child))
-        while pending:
-            path, child = pending.pop()
-            if child.internal_accessible and (self.external_merge.strategy != 'constructive' or constructive_pair(child, current)):
-                candidates.append((path, child))
-            for index, descendant in enumerate(child.children):
-                pending.append((path + (index,), descendant))
-        return candidates
-
     def merge(self, current, path=None):
         if path is None:
             path, selected = self.select(current, self.external_merge.random)
@@ -149,8 +115,6 @@ class InternalMerge:
                 selected = selected.children[index]
             if not selected.internal_accessible:
                 raise ValueError('the internal occurrence is not accessible')
-        if self.external_merge.strategy == 'constructive' and (not constructive_pair(selected, current)):
-            raise ValueError('this internal pair would require IC or MS')
         parent = _copy_mgp_node(current)
         parent.accessible_count -= 1
         original = current
@@ -185,6 +149,8 @@ class ExternalMerge:
         self.candidate_observer = None
         self.choice_observer = None
         self.strategy = 'standard'
+        self.constructive_merges = frozenset()
+        self.complete_into_hole = False
         self.alternative_evaluation_limit = 512
         self.alternative_variant_limit = 64
         self.alternative_pair_limit = 512
@@ -324,27 +290,28 @@ class ExternalMerge:
                     return self.apply_unary(head, other)
                 return IncompleteObject(other, head)
             raise TypeError('unsupported syntactic object')
-        operators = []
+        first_semantic = left.semantic if isinstance(left, IncompleteObject) else left
+        second_semantic = right.semantic if isinstance(right, IncompleteObject) else right
+        heads = []
         if isinstance(left, IncompleteObject):
-            operators.extend(left.head.operators)
-            left = left.semantic
+            heads.append((left.head.operators, first_semantic, second_semantic))
         if isinstance(right, IncompleteObject):
-            operators.extend(right.head.operators)
-            right = right.semantic
-        if not operators or not isinstance(left, SemanticObject) or (not isinstance(right, SemanticObject)):
+            heads.append((right.head.operators, second_semantic, first_semantic) if self.complete_into_hole else (right.head.operators, first_semantic, second_semantic))
+        if not heads or not isinstance(first_semantic, SemanticObject) or (not isinstance(second_semantic, SemanticObject)):
             raise TypeError('unsupported syntactic objects')
         candidates = []
         evaluated = {}
         weights = []
         try:
-            for symbol in operators:
-                for first, first_count in semantic_choices(left):
-                    for second, second_count in semantic_choices(right):
-                        key = (symbol, id(first), id(second))
-                        if key not in evaluated:
-                            evaluated[key] = self.evaluate_operator(symbol, first, second)
-                        candidates.append(evaluated[key])
-                        weights.append(first_count * second_count)
+            for operators, inner, hole in heads:
+                for symbol in operators:
+                    for first, first_count in semantic_choices(inner):
+                        for second, second_count in semantic_choices(hole):
+                            key = (symbol, id(first), id(second))
+                            if key not in evaluated:
+                                evaluated[key] = self.evaluate_operator(symbol, first, second)
+                            candidates.append(evaluated[key])
+                            weights.append(first_count * second_count)
         except AlternativeLimit:
             if not candidates:
                 raise

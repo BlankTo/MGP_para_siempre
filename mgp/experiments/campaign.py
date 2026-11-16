@@ -4,11 +4,13 @@ import os
 import threading
 import time
 import traceback
+from contextlib import contextmanager
 from copy import deepcopy
 from itertools import product
 
 import config
 from mgp.archives.codecs import ARCHIVE_FIELDS, pack_identity_sets, pack_metrics
+from mgp.engine.merge_strategies import constructive_merges
 from mgp.engine.operator_sequence import operator_statistics, reset_operator_statistics
 from mgp.engine.protocol import stream_seed
 from mgp.experiments.jobs import run_job
@@ -155,7 +157,9 @@ def grid(scope):
 def settings(scope):
     return {**config.value(scope, 'SETTINGS'), 'revisit_ic_variants': config.value(scope, 'REVISIT_IC_VARIANTS'),
             'revisit_ic_pairs': config.value(scope, 'REVISIT_IC_PAIRS'), 'revisit_ic_budget': config.value(scope, 'REVISIT_IC_BUDGET'),
-            'single_archive_max_size': config.value(scope, 'SINGLE_ARCHIVE_MAX_SIZE')}
+            'constructive_merges': list(constructive_merges(config.value(scope, 'CONSTRUCTIVE_MERGES'))),
+            'complete_into_hole': config.value(scope, 'COMPLETE_INTO_HOLE'),
+            'single_archive_max_size': config.value(scope, 'SINGLE_ARCHIVE_MAX_SIZE'), 'archive_constants': config.value(scope, 'ARCHIVE_CONSTANTS')}
 
 
 def campaign(engine_settings=None):
@@ -244,31 +248,37 @@ def _execute_once(task):
                     error=f'{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=5)}\noperator_statistics={operator_statistics()}')
 
 
-def execute(task):
-    original_result = _execute_once(task)
-    if original_result['status'] != 'error' or not (original_result.get('error') or '').startswith('HeuristicGCDFailed:'):
-        return original_result
+@contextmanager
+def exact_gcd():
     from sympy.polys import rings
     from sympy.polys.polyerrors import HeuristicGCDFailed
     normal_gcd = rings.PolyElement._gcd_ZZ
-    fallback_count = 0
+    fallbacks = [0]
 
     def verified_exact_gcd(f, g):
-        nonlocal fallback_count
         try:
             return normal_gcd(f, g)
         except HeuristicGCDFailed:
             h, a, b = f.ring.dmp_inner_gcd(f, g)
             if h * a != f or h * b != g:
                 raise ArithmeticError('exact GCD did not reconstruct both polynomials')
-            fallback_count += 1
+            fallbacks[0] += 1
             return h, a, b
 
+    rings.PolyElement._gcd_ZZ = verified_exact_gcd
     try:
-        rings.PolyElement._gcd_ZZ = verified_exact_gcd
-        replay = _execute_once(task)
+        yield fallbacks
     finally:
         rings.PolyElement._gcd_ZZ = normal_gcd
+
+
+def execute(task):
+    original_result = _execute_once(task)
+    if original_result['status'] != 'error' or not (original_result.get('error') or '').startswith('HeuristicGCDFailed:'):
+        return original_result
+    with exact_gcd() as fallbacks:
+        replay = _execute_once(task)
+    fallback_count = fallbacks[0]
     if replay['status'] != 'ok':
         replay['error'] = (replay.get('error') or 'recovery replay failed') + '\ninitial attempt: ' + original_result['error'].splitlines()[0]
         replay['cost']['gcd_exact_recovery_attempted'] = True

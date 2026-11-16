@@ -1,54 +1,52 @@
 from itertools import chain, product
 
 from mgp.engine.objects import IncompleteObject, OperatorObject, SemanticList, SemanticObject
-from mgp.engine.operator_sequence import OperatorSequence, operator_count
+from mgp.engine.operator_sequence import OperatorSequence
 
 
 class AlternativeLimit(RuntimeError):
     pass
 
 
-def constructive_pair(left, right):
-    if isinstance(left, SemanticObject) and isinstance(right, SemanticObject):
-        return False
-    if isinstance(left, OperatorObject) and isinstance(right, OperatorObject):
-        return left.is_atomic == right.is_atomic and left.arity == right.arity
-    if isinstance(left, OperatorObject) or isinstance(right, OperatorObject):
-        head, other = (left, right) if isinstance(left, OperatorObject) else (right, left)
-        if isinstance(other, IncompleteObject):
-            return False
-        if not isinstance(other, SemanticObject):
-            return False
-        return head.arity == 2 or (operator_count(head.operators) == 1 and (not isinstance(other, SemanticList)))
-    if isinstance(left, IncompleteObject) and isinstance(right, IncompleteObject):
-        return False
-    partial, semantic = (left, right) if isinstance(left, IncompleteObject) else (right, left)
-    return isinstance(partial, IncompleteObject) and isinstance(semantic, SemanticObject) and (len(partial.head.operators) == 1) and (not isinstance(partial.semantic, SemanticList)) and (not isinstance(semantic, SemanticList))
+KINDS = ('incomplete', 'operator', 'semantic')
 
 
-def constructive_class(node):
+def merge_kind(node):
     if isinstance(node, OperatorObject):
-        return ('operator', node.is_atomic, node.arity, operator_count(node.operators))
+        return 'operator'
     if isinstance(node, IncompleteObject):
-        return ('incomplete', len(node.head.operators) == 1, isinstance(node.semantic, SemanticList))
-    return ('semantic', isinstance(node, SemanticList))
+        return 'incomplete'
+    return 'semantic'
 
 
-def legal_partners(workspace):
-    groups, representatives, classes = ({}, {}, [])
-    for index, node in enumerate(workspace):
-        category = constructive_class(node)
-        classes.append(category)
-        groups.setdefault(category, []).append(index)
-        representatives.setdefault(category, node)
-    allowed = {}
-    for category, node in representatives.items():
-        allowed[category] = sorted((index for other, indices in groups.items() if constructive_pair(node, representatives[other]) for index in indices))
+def merge_pair(left_kind, right_kind):
+    return '+'.join(sorted((left_kind, right_kind)))
+
+
+def constructive_merges(spec):
+    pairs = set()
+    for item in spec:
+        kinds = item.split('+') if isinstance(item, str) else ()
+        if len(kinds) != 2 or any(kind not in KINDS for kind in kinds):
+            raise ValueError(f'unknown constructive merge {item!r}, use two of {", ".join(KINDS)} joined by +')
+        pairs.add(merge_pair(*kinds))
+    return tuple(sorted(pairs))
+
+
+def constructive_pair(left, right, allowed):
+    return merge_pair(merge_kind(left), merge_kind(right)) in allowed
+
+
+def legal_partners(workspace, allowed):
+    kinds = [merge_kind(node) for node in workspace]
+    groups = {}
+    for index, kind in enumerate(kinds):
+        groups.setdefault(kind, []).append(index)
+    lists = {kind: sorted(index for other, indices in groups.items() if merge_pair(kind, other) in allowed for index in indices) for kind in groups}
+    with_self = {kind for kind in groups if merge_pair(kind, kind) in allowed}
     partners = {}
-    for index, category in enumerate(classes):
-        others = allowed[category]
-        if index in others:
-            others = [other for other in others if other != index]
+    for index, kind in enumerate(kinds):
+        others = [other for other in lists[kind] if other != index] if kind in with_self else lists[kind]
         if others:
             partners[index] = others
     return partners

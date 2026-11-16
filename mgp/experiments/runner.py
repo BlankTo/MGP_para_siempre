@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 import config
+from mgp.engine.merge_strategies import constructive_merges
 from mgp.progress import Progress, duration, log
 
 SCHEMA = 2
@@ -66,6 +67,13 @@ def token(levels=None, extra=(), engine_settings=None):
     if levels is None or 'revisit_ic' in levels['strategies']:
         budget = s.get('revisit_ic_budget')
         parts.append(f"ric{s.get('revisit_ic_variants')}x{s.get('revisit_ic_pairs')}" + ('' if budget is None else f'b{budget}'))
+    merges = s.get('constructive_merges')
+    if (levels is None or 'constructive' in levels['strategies']) and merges is not None and tuple(merges) != constructive_merges(config.CONSTRUCTIVE_MERGES):
+        parts.append('cm' + '-'.join(''.join(kind[0] for kind in pair.split('+')) for pair in merges))
+    if s.get('complete_into_hole'):
+        parts.append('hole')
+    if s.get('archive_constants'):
+        parts.append('const')
     if s.get('single_archive_max_size') is not None:
         parts.append(f"sa{s['single_archive_max_size']}")
     text = '_'.join(parts) or 'base'

@@ -9,7 +9,7 @@ from mgp.archives.building_blocks import BuildingBlockArchive
 from mgp.archives.observations import SymbolicCounts, WorkspaceMetrics, graph_occurrences
 from mgp.engine.fitness import best_index, object_fitness, readonly_target
 from mgp.engine.merge import ExternalMerge, InternalMerge
-from mgp.engine.merge_strategies import legal_partners
+from mgp.engine.merge_strategies import constructive_merges, legal_partners
 from mgp.engine.objects import MATRIX_COLUMNS, SemanticList, SemanticObject, object_counts
 from mgp.engine.protocol import current_protocol
 from mgp.engine.semantics import symbolic_enabled, select_comparison
@@ -46,9 +46,13 @@ class Derivation:
             v = config.get(name)
             if v is not None and (type(v) is not int or v < 1):
                 raise ValueError(name + ' must be a positive integer or None')
-        for name in ('esur_in_IM', 'IM_terminate_on_one', 'semantic_list_enabled', 'building_block_archive_enabled'):
+        for name in ('esur_in_IM', 'IM_terminate_on_one', 'semantic_list_enabled', 'building_block_archive_enabled', 'archive_constants', 'complete_into_hole'):
             if not isinstance(config.get(name, name == 'IM_terminate_on_one'), bool):
                 raise ValueError(name + ' must be a boolean')
+        spec = config.get('constructive_merges')
+        if spec is None and self.merge_strategy == 'constructive':
+            raise ValueError('constructive_merges must list the merges allowed to the constructive strategy')
+        self.constructive_merges = frozenset(constructive_merges(spec or ()))
 
     def consider(self, current, source):
         if not isinstance(current, SemanticObject):
@@ -119,7 +123,8 @@ class Derivation:
             self.current_counts[column] = self.initial_counts[index]
         self.workspace_metrics = WorkspaceMetrics(self.workspace, self.symbolic_counts)
         if archive is None:
-            archive = Archive(self.config.get('single_archive_max_size'), self.config['archive_similarity'], self.config['archive_atomic_objects'], symbolic=symbolic_enabled(self.config))
+            archive = Archive(self.config.get('single_archive_max_size'), self.config['archive_similarity'], self.config['archive_atomic_objects'], symbolic=symbolic_enabled(self.config),
+                              constants=self.config.get('archive_constants', False))
         self.archive = archive
         self.base_archives = {'symbolic' if archive.symbolic else 'similarity': archive}
         if current_protocol(self.config):
@@ -128,7 +133,7 @@ class Derivation:
             self.base_archives = {}
             method = self.config.get('archive_comparison_method', 'cosine')
             for policy in self.config.get('base_archive_policies', ['similarity', 'symbolic']):
-                self.base_archives[policy] = Archive(self.config.get('single_archive_max_size'), self.config['archive_similarity'], self.config['archive_atomic_objects'], comparison=None if method == 'cosine' else select_comparison(method, self.config.get('archive_comparison_parameters', {})), comparison_is_distance=method == 'rmse', symbolic=policy == 'symbolic', target=self.target)
+                self.base_archives[policy] = Archive(self.config.get('single_archive_max_size'), self.config['archive_similarity'], self.config['archive_atomic_objects'], comparison=None if method == 'cosine' else select_comparison(method, self.config.get('archive_comparison_parameters', {})), comparison_is_distance=method == 'rmse', symbolic=policy == 'symbolic', target=self.target, constants=self.config.get('archive_constants', False))
             self.archive = self.base_archives['symbolic']
         self.base_archive_seconds = dict.fromkeys(self.base_archives, 0.0)
         self.base_archive_cpu_seconds = dict.fromkeys(self.base_archives, 0.0)
@@ -140,6 +145,8 @@ class Derivation:
         external_merge.candidate_observer = self.candidate_observer
         external_merge.choice_observer = self.choice_observer
         external_merge.strategy = self.merge_strategy
+        external_merge.constructive_merges = self.constructive_merges
+        external_merge.complete_into_hole = self.config.get('complete_into_hole', False)
         if self.merge_strategy == 'revisit_ic':
             for name, key, default in (('alternative_evaluation_limit', 'revisit_ic_budget', 512), ('alternative_variant_limit', 'revisit_ic_variants', 64),
                                        ('alternative_pair_limit', 'revisit_ic_pairs', 512)):
@@ -308,7 +315,7 @@ class Derivation:
     def constructive_partners(self):
         workspace = tuple(self.workspace)
         if workspace != self._constructive_workspace:
-            self._constructive_partners = legal_partners(workspace)
+            self._constructive_partners = legal_partners(workspace, self.constructive_merges)
             self._constructive_workspace = workspace
         return self._constructive_partners
 

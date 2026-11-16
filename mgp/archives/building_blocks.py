@@ -47,6 +47,9 @@ class BuildingBlockArchive:
         self.defer_credit = bool(config.get('defer_building_block_credit', False))
         self._credit_order = []
         self._credit_finalized = False
+        self.constants = config.get('archive_constants', False)
+        if type(self.constants) is not bool:
+            raise ValueError('archive_constants must be a boolean')
         self.imported_credit = config.get('bb_imported_credit', False)
         if type(self.imported_credit) is not bool:
             raise ValueError('bb_imported_credit must be boolean')
@@ -97,7 +100,7 @@ class BuildingBlockArchive:
         token = node.semantic_identity
         if token not in self.eligibility:
             finite = node.values[np.isfinite(node.values)]
-            self.eligibility[token] = not np.any(np.isinf(node.values)) and len(finite) > 0 and (not np.all(finite == finite[0])) and (not self.symbolic or symbolic_has_variables(node))
+            self.eligibility[token] = not np.any(np.isinf(node.values)) and len(finite) > 0 and (self.constants or (not np.all(finite == finite[0])) and (not self.symbolic or symbolic_has_variables(node)))
         return self.eligibility[token]
 
     def observe_snapshot(self, root):

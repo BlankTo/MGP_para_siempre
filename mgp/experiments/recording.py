@@ -145,12 +145,12 @@ class DivArchive:
             mem[i] = err
 
 
-def candidates(current, atomic_objects):
+def candidates(current, atomic_objects, constants=False):
     from mgp.engine.objects import SemanticList, SemanticObject, underlying_construction
     from mgp.engine.symbolic import symbolic_has_variables
     if isinstance(current, SemanticList):
         for item in current.alternatives:
-            yield from candidates(item, atomic_objects)
+            yield from candidates(item, atomic_objects, constants)
         return
     if not isinstance(current, SemanticObject):
         return
@@ -160,9 +160,7 @@ def candidates(current, atomic_objects):
         return
     finite = np.isfinite(current.values)
     values = current.values[finite]
-    if (len(values) > 1 or np.all(finite)) and np.all(values == values[0]):
-        return
-    if not symbolic_has_variables(current):
+    if not constants and ((len(values) > 1 or np.all(finite)) and np.all(values == values[0]) or not symbolic_has_variables(current)):
         return
     yield current
 
@@ -184,7 +182,7 @@ def install(capacity_k, diversity_thetas, full=True):
         archive = self.archive
         if not archive.symbolic:
             return
-        for c in candidates(current, archive.atomic_objects):
+        for c in candidates(current, archive.atomic_objects, archive.constants):
             key = symbolic_data(c)[0]
             f = object_fitness(c, archive.target)
             if not math.isfinite(f):
